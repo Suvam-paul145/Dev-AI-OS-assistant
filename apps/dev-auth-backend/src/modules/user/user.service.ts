@@ -1,161 +1,101 @@
 /**
- * User Service - User management and storage
+ * User Service - User management and storage (MongoDB)
  * Requirements 4.1, 4.2: User data storage and management
  */
 
+import UserMongoose, { IUser } from '../../models/User';
+import CommandLogMongoose from '../../models/CommandLog';
 import { User, UserPreferences, OAuthProfile } from '../../common/interfaces';
 
 export class UserService {
-  private users: Map<string, User> = new Map();
-  private emailIndex: Map<string, string> = new Map(); // email -> userId
 
   /**
    * Find user by ID
-   * Requirement 8.1: Implement findById()
    */
-  findById(userId: string): User | null {
-    return this.users.get(userId) || null;
+  async findById(userId: string): Promise<IUser | null> {
+    return await UserMongoose.findOne({ _id: userId }) || UserMongoose.findOne({ googleId: userId });
   }
 
   /**
    * Find user by email
-   * Requirement 8.1: Implement findByEmail()
    */
-  findByEmail(email: string): User | null {
-    const userId = this.emailIndex.get(email.toLowerCase());
-    if (!userId) return null;
-    return this.users.get(userId) || null;
+  async findByEmail(email: string): Promise<IUser | null> {
+    return await UserMongoose.findOne({ email });
   }
 
   /**
    * Find or create user from OAuth profile
-   * Requirement 8.1: Implement findOrCreate()
    */
-  findOrCreate(profile: OAuthProfile): User {
+  async findOrCreate(profile: OAuthProfile): Promise<IUser> {
     // Check if user exists by email
-    let user = this.findByEmail(profile.email);
+    let user = await this.findByEmail(profile.email);
 
     if (!user) {
+      console.log(`👤 Creating new user for: ${profile.email}`);
       // Create new user
-      const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      user = {
-        id: userId,
-        email: profile.email,
+      user = new UserMongoose({
         name: profile.name,
+        email: profile.email,
         googleId: profile.provider === 'google' ? profile.id : undefined,
-        githubId: profile.provider === 'github' ? profile.id : undefined,
+        avatar: profile.avatar,
         preferences: {
-          language: 'en',
           theme: 'dark',
-          notificationsEnabled: true,
-          wakeWord: 'Hey Dev'
-        },
-        permissions: [],
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      this.users.set(userId, user);
-      this.emailIndex.set(profile.email.toLowerCase(), userId);
+          voiceName: 'Dev',
+          notifications: true
+        }
+      });
+      await user.save();
     } else {
-      // Update OAuth ID if provider matches
+      // Update existing user
+      let updated = false;
       if (profile.provider === 'google' && !user.googleId) {
         user.googleId = profile.id;
+        updated = true;
       }
-      if (profile.provider === 'github' && !user.githubId) {
-        user.githubId = profile.id;
+      if (profile.avatar && user.avatar !== profile.avatar) {
+        user.avatar = profile.avatar;
+        updated = true;
       }
-      user.updatedAt = new Date();
+
+      if (updated) await user.save();
     }
 
     return user;
   }
 
   /**
-   * Update user preferences
-   * Requirement 8.1: Implement updatePreferences() with immediate persistence
+   * Log command execution to MongoDB
    */
-  updatePreferences(userId: string, preferences: Partial<UserPreferences>): User | null {
-    const user = this.findById(userId);
-    if (!user) return null;
-
-    user.preferences = {
-      ...user.preferences,
-      ...preferences
-    };
-    user.updatedAt = new Date();
-
-    return user;
-  }
-
-  /**
-   * Update user data
-   */
-  update(userId: string, updates: Partial<User>): User | null {
-    const user = this.findById(userId);
-    if (!user) return null;
-
-    Object.assign(user, updates, { updatedAt: new Date() });
-    return user;
-  }
-
-  /**
-   * Log command execution
-   * Requirement 4.2: Log the command with timestamp, status, and user ID
-   */
-  logCommand(userId: string, command: string, intent: string, status: string): void {
-    const user = this.findById(userId);
-    if (!user) return;
-
-    // In production, this would be stored in MongoDB CommandLog collection
-    console.log(`[CommandLog] ${userId}: ${command} (${intent}) - ${status}`);
+  async logCommand(userId: string, command: string, intent: string, status: 'success' | 'failed' | 'pending', result?: any): Promise<void> {
+    try {
+      await CommandLogMongoose.create({
+        userId,
+        command,
+        intent,
+        status,
+        result
+      });
+      console.log(`📝 Logged command for ${userId}: ${command}`);
+    } catch (error) {
+      console.error('Failed to log command:', error);
+    }
   }
 
   /**
    * Export user data
-   * Requirement 4.4: Generate a complete export of their data
    */
-  exportUserData(userId: string): object | null {
-    const user = this.findById(userId);
+  async exportUserData(userId: string): Promise<object | null> {
+    const user = await this.findById(userId);
     if (!user) return null;
 
+    const logs = await CommandLogMongoose.find({ userId }).sort({ createdAt: -1 }).limit(100);
+
     return {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        preferences: user.preferences,
-        permissions: user.permissions,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-      },
+      user: user.toObject(),
+      logs: logs,
       exportedAt: new Date().toISOString()
     };
   }
-
-  /**
-   * Delete user
-   * Requirement 4.5: Remove all user data
-   */
-  deleteUser(userId: string): boolean {
-    const user = this.findById(userId);
-    if (!user) return false;
-
-    this.emailIndex.delete(user.email.toLowerCase());
-    return this.users.delete(userId);
-  }
-
-  /**
-   * Serialize user to JSON
-   */
-  serializeUser(user: User): string {
-    return JSON.stringify({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      preferences: user.preferences,
-      createdAt: user.createdAt.toISOString(),
-      updatedAt: user.updatedAt.toISOString()
-    });
-  }
 }
+
+export const userService = new UserService();

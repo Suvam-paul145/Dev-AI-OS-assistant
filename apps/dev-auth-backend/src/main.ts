@@ -9,7 +9,7 @@ import { JWTService } from './modules/auth/jwt.service';
 import { OAuthHandler } from './modules/auth/oauth.handler';
 import { SessionManager } from './modules/session/session.manager';
 import { PermissionManager } from './modules/permission/permission.manager';
-import { UserService } from './modules/user/user.service';
+import { userService } from './modules/user/user.service';
 
 // Load environment variables
 import dotenv from 'dotenv';
@@ -59,62 +59,93 @@ app.get('/api/status', (req, res) => {
 });
 
 // Command Processing Endpoint
+// Command Processing Endpoint
 app.post('/api/command', async (req, res) => {
   const { command } = req.body;
-  console.log(`[UserId: default] Command received: ${command}`);
 
-  if (MOCK_MODE) {
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    const lowerCmd = command.toLowerCase();
-
-    // NEW: Live Automation Integration (Hybrid approach)
-    // If command starts with "open", try to hit the automation server
-    if (lowerCmd.startsWith('open')) {
-      try {
-        const appName = lowerCmd.replace('open', '').trim();
-        console.log(`⚡ Sending execution request to OS Layer: open_app ${appName}`);
-
-        const authResponse = await fetch('http://localhost:8000/execute', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'open_app',
-            params: { app_name: appName }
-          })
-        });
-
-        if (authResponse.ok) {
-          const data = await authResponse.json() as any;
-          return res.json({
-            command: { original: command, parsed: lowerCmd },
-            response: { text: `Executed: ${data.message}`, type: 'text' },
-            execution: { success: true, mode: 'live', details: data }
-          });
-        }
-      } catch (error) {
-        console.error("OS Automation Error:", error);
-        // Fallback to mock response
-      }
+  // Identify User
+  let userId = 'anonymous';
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwtService.verifyAccessToken(token);
+    if (decoded) {
+      userId = decoded.sub;
     }
+  }
 
-    let responseText = MOCK_RESPONSES['default'];
+  console.log(`[UserId: ${userId}] Command received: ${command}`);
 
-    if (lowerCmd.includes('hello') || lowerCmd.includes('hi')) responseText = MOCK_RESPONSES['hello'];
-    else if (lowerCmd.includes('status')) responseText = MOCK_RESPONSES['status'];
-    else if (lowerCmd.includes('chrome')) responseText = MOCK_RESPONSES['open chrome'];
-    else if (lowerCmd.includes('code')) responseText = MOCK_RESPONSES['open vs code'];
-    else if (lowerCmd.includes('time')) responseText = `Current core time is ${new Date().toLocaleTimeString()}`;
+  let executionResult: any = {};
+  let status: 'success' | 'failed' | 'pending' = 'pending';
 
-    return res.json({
-      command: { original: command, parsed: lowerCmd },
-      response: { text: responseText, type: 'text' },
-      execution: { success: true, mode: 'mock' }
-    });
-  } else {
-    // TODO: Connect to actual AILLMSystem and AssistantCore
-    return res.status(501).json({ error: 'Live mode not fully implemented yet' });
+  try {
+    if (MOCK_MODE) {
+      // Simulate processing delay
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      const lowerCmd = command.toLowerCase();
+
+      // NEW: Live Automation Integration (Hybrid approach)
+      // If command starts with "open", try to hit the automation server
+      if (lowerCmd.startsWith('open')) {
+        try {
+          const appName = lowerCmd.replace('open', '').trim();
+          console.log(`⚡ Sending execution request to OS Layer: open_app ${appName}`);
+
+          const authResponse = await fetch('http://localhost:8000/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'open_app',
+              params: { app_name: appName }
+            })
+          });
+
+          if (authResponse.ok) {
+            const data = await authResponse.json() as any;
+            executionResult = data;
+            status = 'success';
+
+            // Log to DB
+            await userService.logCommand(userId, command, 'os_automation', 'success', data);
+
+            return res.json({
+              command: { original: command, parsed: lowerCmd },
+              response: { text: `Executed: ${data.message}`, type: 'text' },
+              execution: { success: true, mode: 'live', details: data }
+            });
+          }
+        } catch (error) {
+          console.error("OS Automation Error:", error);
+          // Fallback to mock response
+        }
+      }
+
+      let responseText = MOCK_RESPONSES['default'];
+
+      if (lowerCmd.includes('hello') || lowerCmd.includes('hi')) responseText = MOCK_RESPONSES['hello'];
+      else if (lowerCmd.includes('status')) responseText = MOCK_RESPONSES['status'];
+      else if (lowerCmd.includes('chrome')) responseText = MOCK_RESPONSES['open chrome'];
+      else if (lowerCmd.includes('code')) responseText = MOCK_RESPONSES['open vs code'];
+      else if (lowerCmd.includes('time')) responseText = `Current core time is ${new Date().toLocaleTimeString()}`;
+
+      // Log Mock Execution
+      await userService.logCommand(userId, command, 'mock_response', 'success', { response: responseText });
+
+      return res.json({
+        command: { original: command, parsed: lowerCmd },
+        response: { text: responseText, type: 'text' },
+        execution: { success: true, mode: 'mock' }
+      });
+    } else {
+      // TODO: Connect to actual AILLMSystem and AssistantCore
+      return res.status(501).json({ error: 'Live mode not fully implemented yet' });
+    }
+  } catch (err) {
+    console.error(err);
+    await userService.logCommand(userId, command, 'error', 'failed', { error: String(err) });
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -145,16 +176,15 @@ app.get('/api/auth/google/callback', async (req, res) => {
     const profile = await oauthHandler.handleGoogleCallback(code as string);
     console.log('✅ Google Auth Success:', profile.email);
 
-    // TODO: Create or Update User in DB
-    // const user = await userService.findOrCreate(profile);
-    // For now, assume user-1
-    const userId = profile.id;
+    // Create or Update User in DB
+    const user = await userService.findOrCreate(profile);
+    const userId = user._id.toString();
 
     // Generate Tokens
-    const tokens = jwtService.generateTokenPair(userId, profile.email, 'session-1');
+    const tokens = jwtService.generateTokenPair(userId, user.email, 'session-1');
 
     // Redirect back to Frontend with Token
-    res.redirect(`http://localhost:3000/?token=${tokens.accessToken}&name=${encodeURIComponent(profile.name)}`);
+    res.redirect(`http://localhost:3000/?token=${tokens.accessToken}&name=${encodeURIComponent(user.name)}`);
 
   } catch (error) {
     console.error('Auth Failed:', error);
