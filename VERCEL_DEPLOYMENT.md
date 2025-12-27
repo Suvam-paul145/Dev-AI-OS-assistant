@@ -1,38 +1,59 @@
-# DEV.OS Vercel Deployment Guide
+# DEV.OS Full-Stack Deployment Guide
 
-Follow these steps to deploy your **Neural OS** frontend to Vercel and automate your GitHub workflow.
+Since DEV.OS uses **Socket.io** for real-time automation updates, you need a hosting setup that supports persistent connections.
 
-## 1. Deploying the Frontend (Vercel)
+## 🚀 Recommended Architecture
+- **Frontend**: [Vercel](https://vercel.com) (Optimized for Next.js)
+- **Backend**: [Render](https://render.com) or [Railway](https://railway.app) (Supports persistent Node.js/WebSockets)
+- **Database**: [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) (Cloud DB)
 
-1. **Connect Repository**: Go to [vercel.com/new](https://vercel.com/new) and import your `Suvam-paul145/Dev-AI-OS-assistant` repository.
-2. **Project Settings**:
-   - **Framework Preset**: Select `Next.js`.
-   - **Root Directory**: Click "Edit" and select `apps/dev-frontend-ui`.
-3. **Environment Variables**: Add the following variables in the Vercel dashboard:
-   - `NEXT_PUBLIC_SOCKET_URL`: Your backend URL (e.g., `https://your-backend.herokuapp.com`).
-   - `NEXT_PUBLIC_API_BASE_URL`: Your backend API URL (e.g., `https://your-backend.herokuapp.com/api`).
-4. **Deploy**: Click **Deploy**.
+---
 
-## 2. Automating GitHub Pushes
+## 1. Deploy the Backend (Render - Free Tier)
+1. **New Web Service**: Connect your GitHub repo.
+2. **Build Settings**:
+   - **Root Directory**: `apps/dev-auth-backend`
+   - **Build Command**: `npm install && npm run build`
+   - **Start Command**: `npm start`
+3. **Environment Variables**: Copy everything from your local `.env` to Render:
+   - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+   - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+   - `MONGODB_URI`
+   - `GEMINI_API_KEY`
+   - `GITHUB_REDIRECT_URI`: `https://your-backend.render.com/api/auth/github/callback`
+   - `GOOGLE_REDIRECT_URI`: `https://your-backend.render.com/api/auth/google/callback`
 
-To allow DEV.OS to push code directly to your GitHub account:
+---
 
-1. **Create PAT**: Go to [GitHub Developer Settings](https://github.com/settings/tokens) and create a **Personal Access Token (Classic)**.
-2. **Scopes**: Give it the `repo` scope.
-3. **Update Backend .env**:
-   - Add `GITHUB_TOKEN=your_token_here` to your backend `.env` file.
-   - Restart your backend server.
+## 2. Deploy the Frontend (Vercel)
+1. **New Project**: Import your repo.
+2. **Framework Preset**: `Next.js`.
+3. **Root Directory**: `apps/dev-frontend-ui`.
+4. **Environment Variables**:
+   - `NEXT_PUBLIC_API_BASE_URL`: `https://your-backend.render.com/api`
+   - `NEXT_PUBLIC_SOCKET_URL`: `https://your-backend.render.com`
+5. **Deploy**: Vercel will give you a URL like `https://dev-os-frontend.vercel.app`.
 
-## 3. Deployment Checklist
-- [ ] Backend is running on a live server (Heroku, DigitalOcean, or similar).
-- [ ] Google OAuth Redirect URI is updated in Google Console to match your live frontend URL.
-- [ ] MongoDB Atlas is configured for live database access.
+---
 
-## Automation Command
-Once deployed, you can tell CodeBuddy:
-> "Write a Python script for a simple calculator and push it to my 'DevAI-Scripts' repository."
+## 3. Update OAuth Credentials (CRITICAL)
+Your local login won't work in production until you update your provider settings:
 
-DEV.OS will:
-1. Generate the code.
-2. Create the file on your local desktop.
-3. **Push it automatically** to your GitHub repository using the new `GitHubService`.
+### A. Google Cloud Console
+1. Go to **APIs & Services > Credentials**.
+2. Edit your OAuth Client ID.
+3. **Authorized JavaScript Origins**: Add your Vercel URL.
+4. **Authorized Redirect URIs**: Add `https://your-backend.render.com/api/auth/google/callback`.
+
+### B. GitHub Developer Settings
+1. Go to **Settings > Developer Settings > OAuth Apps**.
+2. **Homepage URL**: Add your Vercel URL.
+3. **Authorization callback URL**: Add `https://your-backend.render.com/api/auth/github/callback`.
+
+---
+
+## 4. Why not Vercel for Backend?
+> [!WARNING]
+> Vercel uses **Serverless Functions** which timeout after 10-60 seconds and do NOT support persistent Socket.io connections. To see your "Neural Core" status updates and real-time logs, the backend **must** run on a platform like Render or Railway.
+

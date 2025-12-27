@@ -1,16 +1,49 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { LayoutDashboard, Shield, Plug, User, Settings, Bell, X, Info, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, Shield, Plug, User, Bell, X, Info, CheckCircle2, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const TopBar = () => {
     const router = useRouter();
     const [showNotifications, setShowNotifications] = useState(false);
-    const [notifications] = useState([
+    const [userData, setUserData] = useState({ name: 'User', avatar: '', token: '' });
+
+    const [notifications, setNotifications] = useState([
         { id: 1, type: 'info', title: 'Security Patch', message: 'Kernel v1.0.4 is now active.', time: 'Just now' },
         { id: 2, type: 'permission', title: 'File Access', message: 'Requesting write access to Desktop.', time: '2m ago' }
     ]);
+
+    const removeNotification = (id: number) => {
+        setNotifications(notifications.filter(n => n.id !== id));
+    };
+
+    const clearAllNotifications = () => {
+        setNotifications([]);
+    };
+
+    React.useEffect(() => {
+        const name = localStorage.getItem('dev_user_name') || 'User';
+        const avatar = localStorage.getItem('dev_user_avatar') || '';
+        const token = localStorage.getItem('dev_token') || '';
+
+        // Generate random avatar if none exists
+        const fallbackAvatar = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${encodeURIComponent(name)}`;
+
+        setUserData({
+            name,
+            avatar: avatar || fallbackAvatar,
+            token
+        });
+    }, []);
+
+    const handleLogout = () => {
+        localStorage.removeItem('dev_token');
+        localStorage.removeItem('dev_user_name');
+        localStorage.removeItem('dev_user_avatar');
+        router.push('/');
+    };
+
     return (
         <div className="w-full h-16 glass-panel border-b border-white/10 flex items-center justify-between px-6 sticky top-0 z-50">
             {/* Logo */}
@@ -79,8 +112,18 @@ const TopBar = () => {
                                                     <p className="text-xs text-slate-400 leading-relaxed">{n.message}</p>
                                                     {n.type === 'permission' && (
                                                         <div className="flex gap-2 mt-3">
-                                                            <button className="flex-1 py-1 px-3 bg-blue-600 text-white text-[10px] font-bold rounded-md hover:bg-blue-500 transition-colors">Grant</button>
-                                                            <button className="flex-1 py-1 px-3 bg-white/5 text-slate-400 text-[10px] font-bold rounded-md hover:bg-white/10 transition-colors border border-white/10">Deny</button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); removeNotification(n.id); }}
+                                                                className="flex-1 py-1 px-3 bg-blue-600 text-white text-[10px] font-bold rounded-md hover:bg-blue-500 transition-colors"
+                                                            >
+                                                                Grant
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); removeNotification(n.id); }}
+                                                                className="flex-1 py-1 px-3 bg-white/5 text-slate-400 text-[10px] font-bold rounded-md hover:bg-white/10 transition-colors border border-white/10"
+                                                            >
+                                                                Deny
+                                                            </button>
                                                         </div>
                                                     )}
                                                 </div>
@@ -89,23 +132,36 @@ const TopBar = () => {
                                     ))}
                                 </div>
                                 <div className="p-3 text-center bg-white/[0.02]">
-                                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest hover:text-slate-400 cursor-pointer transition-colors">Clear All Clear Alerts</p>
+                                    <p
+                                        onClick={clearAllNotifications}
+                                        className="text-[10px] text-slate-600 font-bold uppercase tracking-widest hover:text-slate-400 cursor-pointer transition-colors"
+                                    >
+                                        Clear All Alerts
+                                    </p>
                                 </div>
                             </motion.div>
                         )}
                     </AnimatePresence>
                 </div>
-                <button className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
-                    <Settings className="w-5 h-5" />
+                <button
+                    onClick={handleLogout}
+                    className="p-2 rounded-lg hover:bg-red-500/10 text-slate-400 hover:text-red-400 transition-colors group"
+                    title="Logout"
+                >
+                    <LogOut className="w-5 h-5" />
                 </button>
                 <div className="flex items-center gap-3 pl-4 border-l border-white/10">
                     <div className="text-right hidden sm:block">
-                        <p className="text-sm font-medium text-white">Suvam</p>
+                        <p className="text-sm font-medium text-white">{userData.name}</p>
                         <p className="text-xs text-blue-400">Owner</p>
                     </div>
                     <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 p-[2px]">
                         <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center overflow-hidden">
-                            <User className="w-5 h-5 text-slate-300" />
+                            {userData.avatar ? (
+                                <img src={userData.avatar} alt="User Avatar" className="w-full h-full object-cover" />
+                            ) : (
+                                <User className="w-5 h-5 text-slate-300" />
+                            )}
                         </div>
                     </div>
                 </div>

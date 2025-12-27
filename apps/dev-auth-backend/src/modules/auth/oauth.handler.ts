@@ -135,14 +135,29 @@ export class OAuthHandler {
       });
 
       const profile = profileResponse.data;
+      let email = profile.email;
+
+      // 3. Fallback: Fetch emails if primary email is null/private
+      if (!email) {
+        try {
+          const emailsResponse = await axios.get('https://api.github.com/user/emails', {
+            headers: { Authorization: `Bearer ${access_token}` }
+          });
+          const emails = emailsResponse.data;
+          const primaryEmail = emails.find((e: any) => e.primary && e.verified) || emails[0];
+          email = primaryEmail?.email;
+        } catch (emailError) {
+          console.error('Failed to fetch GitHub emails:', emailError);
+        }
+      }
 
       return {
         id: profile.id.toString(),
-        email: profile.email || `${profile.login}@github.com`, // Fallback for private emails
+        email: email || `${profile.login}@github.com`, // Absolute fallback
         name: profile.name || profile.login,
         provider: 'github',
         avatar: profile.avatar_url,
-        accessToken: access_token, // Custom addition to interface
+        accessToken: access_token,
         username: profile.login
       } as any;
     } catch (error: any) {

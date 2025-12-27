@@ -291,7 +291,7 @@ app.delete('/api/history', async (req, res) => {
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
     const token = authHeader.split(' ')[1];
     const decoded = jwtService.verifyAccessToken(token) as any;
-    const userId = decoded.userId;
+    const userId = decoded?.sub;
 
     await userService.clearCommandHistory(userId);
     io.emit('activity', {
@@ -327,7 +327,7 @@ app.get('/api/user/status', async (req, res) => {
   try {
     const token = authHeader.split(' ')[1];
     const decoded = jwtService.verifyAccessToken(token) as any;
-    const user = await userService.getUserById(decoded.userId);
+    const user = await userService.getUserById(decoded?.sub);
 
     if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -602,31 +602,82 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // 3. GitHub Link/Login
 app.get('/api/auth/github', (req, res) => {
-  const state = Math.random().toString(36).substring(7);
+  const { token } = req.query;
+  let state = Math.random().toString(36).substring(7);
+
+  console.log(`[GitHub Auth] Initiating auth. Token present: ${!!token}`);
+
+  // If token is provided, it's a linking flow
+  if (token) {
+    const decoded = jwtService.verifyAccessToken(token as string) as any;
+    if (decoded && decoded.sub) {
+      state = `link_${decoded.sub}_${state}`;
+      console.log(`[GitHub Auth] Linking mode for sub: ${decoded.sub}`);
+    } else {
+      console.warn(`[GitHub Auth] Provided token is invalid or missing sub`);
+    }
+  }
+
   const url = oauthHandler.generateGithubAuthUrl(state);
   res.redirect(url);
 });
 
 // 4. GitHub Callback
 app.get('/api/auth/github/callback', async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
+  console.log(`[GitHub Callback] Received. State: ${state}`);
   try {
     const profile = await oauthHandler.handleGithubCallback(code as string) as any;
+    console.log(`[GitHub Callback] Profile fetched: ${profile.email}`);
 
-    // Create or Link user
-    const user = await userService.findOrCreate(profile);
+    const isLinking = (state as string)?.startsWith('link_');
+    let userIdToLink: string | null = null;
 
-    // Update GitHub specific info
-    await userService.updateUser(user._id.toString(), {
-      githubToken: profile.accessToken,
-      githubUsername: profile.username
-    });
+    if (isLinking) {
+      userIdToLink = (state as string).split('_')[1];
+      console.log(`[GitHub Callback] Attempting to link to user: ${userIdToLink}`);
+    }
 
-    const tokens = jwtService.generateTokenPair(user._id.toString(), user.email, 'session-1');
-    res.redirect(`http://localhost:3000/dashboard?token=${tokens.accessToken}&name=${encodeURIComponent(user.name)}&github=linked`);
-  } catch (error) {
-    console.error('GitHub Auth Failed:', error);
-    res.redirect('http://localhost:3000?error=github_failed');
+    if (userIdToLink) {
+      // LINKING FLOW: Check if email matches
+      const currentUser = await userService.getUserById(userIdToLink);
+      if (!currentUser) {
+        console.error(`[GitHub Callback] User to link not found: ${userIdToLink}`);
+        throw new Error('User not found');
+      }
+
+      console.log(`[GitHub Callback] Email Check: User=${currentUser.email}, GitHub=${profile.email}`);
+      if (currentUser.email !== profile.email) {
+        console.warn(`[GitHub Callback] Email mismatch: User=${currentUser.email}, GitHub=${profile.email}`);
+        return res.redirect(`http://localhost:3000/plugins?error=email_mismatch`);
+      }
+
+      // Update current user
+      await userService.updateUser(userIdToLink, {
+        githubToken: profile.accessToken,
+        githubUsername: profile.username
+      });
+      console.log(`[GitHub Callback] User ${userIdToLink} linked successfully`);
+
+      return res.redirect(`http://localhost:3000/plugins?github=linked`);
+    } else {
+      // LOGIN FLOW: Create or Link user by email
+      console.log(`[GitHub Callback] Standard login flow for: ${profile.email}`);
+      const user = await userService.findOrCreate(profile);
+
+      // Update GitHub specific info
+      await userService.updateUser(user._id.toString(), {
+        githubToken: profile.accessToken,
+        githubUsername: profile.username
+      });
+
+      const tokens = jwtService.generateTokenPair(user._id.toString(), user.email, 'session-1');
+      console.log(`[GitHub Callback] Login successful for: ${user.email}`);
+      res.redirect(`http://localhost:3000/dashboard?token=${tokens.accessToken}&name=${encodeURIComponent(user.name)}&github=linked`);
+    }
+  } catch (error: any) {
+    console.error('[GitHub Auth Failed]:', error.message || error);
+    res.redirect(`http://localhost:3000?error=github_failed&message=${encodeURIComponent(error.message || 'Unknown error')}`);
   }
 });
 

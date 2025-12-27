@@ -27,6 +27,7 @@ const Plugins = () => {
     ]);
 
     const [showSuccess, setShowSuccess] = useState(false);
+    const [showError, setShowError] = useState<string | null>(null);
 
     React.useEffect(() => {
         const fetchStatus = async () => {
@@ -45,7 +46,7 @@ const Plugins = () => {
 
         fetchStatus();
 
-        // Check if we just came back from a successful GitHub link
+        // Check for success or error from URL
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('github') === 'linked') {
             setShowSuccess(true);
@@ -54,8 +55,14 @@ const Plugins = () => {
             ));
             // Cleanup URL
             window.history.replaceState({}, document.title, window.location.pathname);
-
             setTimeout(() => setShowSuccess(false), 5000);
+        }
+
+        if (urlParams.get('error') === 'email_mismatch') {
+            setShowError("Please sign in with the email address associated with your GitHub account.");
+            // Cleanup URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            setTimeout(() => setShowError(null), 8000);
         }
     }, []);
 
@@ -82,6 +89,25 @@ const Plugins = () => {
                             <div>
                                 <p className="font-bold text-sm">Successfully Linked GitHub!</p>
                                 <p className="text-xs opacity-70">DEV.OS now has permission to push code to your account.</p>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+
+                {/* Error Notification */}
+                {showError && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-red-500/10 border border-red-500/30 p-4 rounded-2xl flex items-center justify-between text-red-400"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-red-500/20 rounded-lg">
+                                <Zap className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <p className="font-bold text-sm">Link Failed</p>
+                                <p className="text-xs opacity-70">{showError}</p>
                             </div>
                         </div>
                     </motion.div>
@@ -136,7 +162,8 @@ const Plugins = () => {
                                     <button
                                         onClick={() => {
                                             if (plugin.id === 'github' && plugin.status !== 'connected') {
-                                                window.location.href = 'http://localhost:3001/api/auth/github';
+                                                const token = localStorage.getItem('dev_token');
+                                                window.location.href = `http://localhost:3001/api/auth/github${token ? `?token=${token}` : ''}`;
                                             }
                                         }}
                                         className="flex-1 py-4 bg-white text-black rounded-2xl font-bold flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform"
