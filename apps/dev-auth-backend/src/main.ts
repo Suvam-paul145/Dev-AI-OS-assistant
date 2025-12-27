@@ -189,17 +189,21 @@ const githubPush = async (userToken: string | undefined, userGithubName: string 
     let repoName: string;
 
     if (repo.includes('/')) {
-      [owner, repoName] = repo.split('/');
+      const parts = repo.split('/');
+      owner = parts[0];
+      repoName = parts[1];
     } else {
-      owner = userGithubName || 'suvam-paul145';
+      // Priority: 1. userGithubName from database, 2. system default
+      owner = userGithubName || process.env.GITHUB_DEFAULT_OWNER || 'suvam-paul145';
       repoName = repo;
     }
 
+    console.log(`[GitHub Push] Targeting ${owner}/${repoName}`);
     const result = await personalService.pushFile(owner, repoName, filePath, content, commitMessage);
     return result;
-  } catch (error) {
-    console.error('Failed to push to github:', error);
-    return { success: false, error: String(error) };
+  } catch (error: any) {
+    console.error('Failed to push to github:', error.message);
+    return { success: false, error: error.message };
   }
 };
 

@@ -38,6 +38,10 @@ export class GitHubService {
 
             return { success: true, message: `Successfully pushed ${filePath} to ${owner}/${repo}` };
         } catch (error: any) {
+            if (error.status === 404) {
+                console.error(`GitHub repo not found: ${owner}/${repo}`);
+                throw new Error(`Repository '${owner}/${repo}' not found. Please create it first using the 'github_create_repo' action.`);
+            }
             console.error('GitHub Push Error:', error.message);
             throw new Error(`GitHub Sync Failed: ${error.message}`);
         }
