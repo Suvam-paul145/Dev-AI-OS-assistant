@@ -55,6 +55,23 @@ const CodeBuddy = ({ onCommandExecuted }: CodeBuddyProps) => {
     React.useEffect(() => {
         const name = localStorage.getItem('dev_user_name');
         if (name) setUserName(name);
+
+        // Auto-greet on first load of the session
+        const hasGreeted = sessionStorage.getItem('dev_greeted');
+        if (!hasGreeted) {
+            const firstName = name ? name.split(' ')[0] : 'Developer';
+            const welcomeText = `Welcome back, ${firstName}. I am DEV.OS, the world's most advanced OS automation and productivity AI. I am now online and standing by. How can I initiate your next task?`;
+
+            setLastResponse(welcomeText);
+
+            // Delay speech slightly to ensure voices are loaded
+            const timer = setTimeout(() => {
+                speakResponse(welcomeText);
+                sessionStorage.setItem('dev_greeted', 'true');
+            }, 1500);
+
+            return () => clearTimeout(timer);
+        }
     }, []);
 
     const handleSend = async () => {

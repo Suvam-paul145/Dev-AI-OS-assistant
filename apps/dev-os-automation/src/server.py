@@ -7,6 +7,9 @@ import sys
 import os
 import asyncio
 import json
+import subprocess
+import string
+import math
 from datetime import datetime
 
 # Add parent directory to path so 'src' can be imported
@@ -22,9 +25,6 @@ try:
     from comtypes import CLSCTX_ALL
     from ctypes import cast, POINTER
     import screen_brightness_control as sbc
-    import subprocess
-    import string
-    import math
 except ImportError:
     print("⚠️  Warning: System control libraries not found. Some features will be mocked.")
 
@@ -157,7 +157,14 @@ async def execute_command(req: ExecuteRequest):
             app_name = app_name.strip(string.punctuation).strip()
 
             # Security Check
-            action_obj = Action("launch", "launch", "app", req.params, ActionSeverity.LOW, "Launch App")
+            action_obj = Action(
+                id="launch",
+                name="launch",
+                category="app",
+                params=req.params,
+                severity=ActionSeverity.LOW,
+                description="Launch App"
+            )
             valid, reason = guard_agent.validate(action_obj)
             if not valid:
                  return ExecuteResponse(success=False, message=f"Permission Denied: {reason}")
@@ -216,6 +223,7 @@ async def execute_command(req: ExecuteRequest):
             except Exception as e:
                 return ExecuteResponse(success=False, message=f"Volume control failed: {e}")
 
+        elif req.action == "set_mic_mute":
             mute_status = req.params.get("mute", True)
             try:
                 enumerator = AudioUtilities.GetDeviceEnumerator()

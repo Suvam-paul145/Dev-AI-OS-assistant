@@ -9,6 +9,7 @@ import ActivityLog from '@/components/ActivityLog';
 import Permissions from '@/components/Permissions';
 import PermissionModal from '@/components/PermissionModal';
 import { motion, Reorder } from 'framer-motion';
+import { api } from '../lib/api';
 
 export default function Dashboard() {
     const [showPermissions, setShowPermissions] = useState(false);
@@ -19,7 +20,7 @@ export default function Dashboard() {
 
     const handleRefresh = () => setRefreshTrigger(prev => prev + 1);
 
-    // Check for Auth Token on Load
+    // Check for Auth Token and Fetch Status
     React.useEffect(() => {
         setIsHydrated(true);
 
@@ -38,10 +39,34 @@ export default function Dashboard() {
         if (token) {
             localStorage.setItem('dev_token', token);
             window.history.replaceState({}, document.title, window.location.pathname);
-            if (!localStorage.getItem('perm_mic')) {
-                setShowPermissions(true);
-            }
         }
+
+        const fetchStatus = async () => {
+            try {
+                const response = await api.get('/user/status');
+                const p = response.data.permissions;
+
+                if (p) {
+                    // Sync backend perms to localStorage for UI consistency
+                    localStorage.setItem('perm_mic', String(p.voice_control));
+                    localStorage.setItem('perm_system', String(p.file_access));
+                    localStorage.setItem('perm_app_automation', String(p.app_automation));
+                    window.dispatchEvent(new Event('storage'));
+
+                    // If all critical permissions are false, it might be a new user, show modal
+                    if (!p.voice_control && !p.file_access) {
+                        setShowPermissions(true);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch user status/permissions:", err);
+                if (!localStorage.getItem('perm_mic')) {
+                    setShowPermissions(true);
+                }
+            }
+        };
+
+        fetchStatus();
     }, []);
 
     const getTimeGreeting = () => {

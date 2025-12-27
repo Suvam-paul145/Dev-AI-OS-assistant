@@ -427,6 +427,14 @@ app.post('/api/command', async (req, res) => {
     const { action, params } = normalization;
 
     if (action) {
+      // 0. Immediate Feedback
+      io.emit('activity', {
+        timestamp: new Date().toLocaleTimeString(),
+        type: 'info',
+        title: 'Processing',
+        message: `Executing request: ${command}...`
+      });
+
       // Execute OS Action
       try {
         const controller = new AbortController();
@@ -444,20 +452,31 @@ app.post('/api/command', async (req, res) => {
         if (!osResponse.ok) throw new Error(`OS Server Error: ${osResponse.statusText}`);
         const data = await osResponse.json() as any;
 
+        const isActuallySuccessful = data.success !== false;
+
         // Log & Emit
-        await userService.logCommand(userId, command, action, 'success', data);
+        await userService.logCommand(userId, command, action, isActuallySuccessful ? 'success' : 'failed', data);
+
         io.emit('activity', {
           timestamp: new Date().toLocaleTimeString(),
-          type: 'success',
-          title: 'Action Executed',
-          message: normalization.response || `Successfully executed: ${action}`
+          type: isActuallySuccessful ? 'success' : 'error',
+          title: isActuallySuccessful ? 'Action Executed' : 'Execution Failed',
+          message: isActuallySuccessful
+            ? (normalization.response || `Successfully executed: ${action}`)
+            : (data.message || `Failed to execute: ${action}`)
         });
+
         io.emit('system_status_update'); // Tell UI to refresh stats
 
         return res.json({
           command: { original: command },
-          response: { text: normalization.response || `Executed: ${command}`, type: 'text' },
-          execution: { success: true, mode: 'live', details: data }
+          response: {
+            text: isActuallySuccessful
+              ? (normalization.response || `Executed: ${command}`)
+              : `Execution failed: ${data.message || 'Unknown error'}`,
+            type: isActuallySuccessful ? 'text' : 'error'
+          },
+          execution: { success: isActuallySuccessful, mode: 'live', details: data }
         });
 
       } catch (e: any) {
@@ -470,6 +489,14 @@ app.post('/api/command', async (req, res) => {
           return res.status(504).json({ error: "OS Server Timeout" });
         }
         console.error("OS Execution Failed:", e);
+
+        io.emit('activity', {
+          timestamp: new Date().toLocaleTimeString(),
+          type: 'error',
+          title: 'System Error',
+          message: `Internal error executing ${action}`
+        });
+
         return res.status(500).json({ error: String(e) });
       }
     }
@@ -512,8 +539,9 @@ app.post('/api/command', async (req, res) => {
             2. If you need to create a new folder/project, use 'github_create_repo' followed by 'github_push'.
             
             Formatting:
-            - If triggering an action: Return ONLY the JSON object. 
-              Example: { "action": "open_app", "params": { "app_name": "https://github.com" } }
+            - If triggering a SINGLE action: Return the JSON object. 
+            - If triggering MULTIPLE actions (e.g. creating 3 files): Return a JSON ARRAY of objects.
+              Example: [{ "action": "write_code", ... }, { "action": "write_code", ... }]
             - If answering a query: Use normal text.
             
             User Input: "${command}"
@@ -522,132 +550,116 @@ app.post('/api/command', async (req, res) => {
         const result = await model.generateContent(prompt);
         const responseText = result.response.text();
 
-        // Try Parse JSON
-        let aiAction = null;
+        // Try Parse JSON (Single Object or Array)
+        let aiActions: any[] = [];
         try {
           const cleaned = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
           if (cleaned.startsWith('{')) {
-            aiAction = JSON.parse(cleaned);
+            aiActions = [JSON.parse(cleaned)];
+          } else if (cleaned.startsWith('[')) {
+            aiActions = JSON.parse(cleaned);
           }
         } catch (ignore) { }
 
-        if (aiAction && aiAction.action) {
-          console.log(`🤖 AI triggered recursive action: ${aiAction.action}`);
+        if (aiActions.length > 0) {
+          console.log(`🤖 AI triggered ${aiActions.length} action(s)`);
 
-          // Permission Enforcement Layer
+          // Fetch user permissions once for the batch
           const user = await userService.getUserById(userId);
           const perms = user?.permissions || { file_access: false, app_automation: false, voice_control: false };
 
-          // 1. File Systems Check
-          if (['write_code', 'clear_recycle_bin', 'github_push'].includes(aiAction.action)) {
-            if (!perms.file_access) {
-              return res.json({
-                response: { text: "I need 'File Access' permission to do that. Please enable it in Settings > Permissions.", type: 'error' },
-                execution: { success: false, error: 'Permission Denied: File Access' }
-              });
+          const results = [];
+
+          // Execute Actions Sequentially
+          for (const action of aiActions) {
+            console.log(`Processing action: ${action.action}`);
+
+            // Permission Checks
+            if (['write_code', 'clear_recycle_bin', 'github_push'].includes(action.action) && !perms.file_access) {
+              results.push({ success: false, error: 'Permission Denied: File Access' });
+              continue;
+            }
+            if ((['open_app', 'system_execute'].includes(action.action) || action.action.startsWith('set_')) && !perms.app_automation) {
+              results.push({ success: false, error: 'Permission Denied: App Automation' });
+              continue;
+            }
+
+            // Execution Logic
+            try {
+              if (action.action === 'write_code') {
+                const res = await writeCodeToDesktop(action.params.language, action.params.file_name, action.params.code);
+                results.push(res);
+                if (res.success) {
+                  io.emit('activity', {
+                    timestamp: new Date().toLocaleTimeString(),
+                    type: 'success',
+                    title: 'Code Created',
+                    message: `File: ${action.params.file_name}`
+                  });
+                }
+              } else if (action.action === 'github_push') {
+                const token = user?.githubToken;
+                if (!token) { results.push({ success: false, error: 'GitHub not linked' }); continue; }
+
+                const res = await githubPush(token, user?.githubUsername, action.params.repo, action.params.file_path, action.params.commit_message, action.params.content || '') as any;
+                results.push(res);
+              } else if (action.action === 'github_create_repo') {
+                const token = user?.githubToken || process.env.GITHUB_TOKEN || '';
+                const res = await githubCreateRepo(token, action.params.name, action.params.description);
+                results.push(res);
+              } else {
+                // Forward to OS Server
+                const osResponse = await fetch(OS_SERVER_URL, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: action.action, params: action.params || {} })
+                });
+                const osData = await osResponse.json();
+                results.push({ success: true, data: osData });
+              }
+            } catch (err) {
+              console.error(`Action ${action.action} failed:`, err);
+              results.push({ success: false, error: String(err) });
             }
           }
 
-          // 2. App Automation Check
-          if (['open_app', 'system_execute'].includes(aiAction.action) || aiAction.action.startsWith('set_')) {
-            if (!perms.app_automation) {
-              return res.json({
-                response: { text: "I need 'App Automation' permission to control apps and system settings. Please enable it in Settings > Permissions.", type: 'error' },
-                execution: { success: false, error: 'Permission Denied: App Automation' }
-              });
+          // Generate Summary Response
+          const successCount = results.filter(r => r.success).length;
+          const failCount = results.length - successCount;
+
+          let responseMsg = "";
+          if (failCount > 0) {
+            if (results.some(r => r.error && r.error.includes('Permission'))) {
+              responseMsg = "I couldn't complete some actions because I don't have the necessary permissions. Please check Settings > Permissions.";
+            } else {
+              responseMsg = `I completed ${successCount} actions, but ${failCount} failed.`;
             }
+          } else {
+            responseMsg = `Successfully executed ${successCount} action(s).`;
           }
 
-          // Strip JSON from the text response shown to user
-          const textForUser = responseText.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim();
-          const finalUserMessage = textForUser || "Processing your request...";
+          // If there was original text in the response (context), preserve it
+          const originalText = responseText.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim();
+          const finalMessage = originalText ? originalText : responseMsg;
 
-          if (aiAction.action === 'write_code') {
-            const result = await writeCodeToDesktop(aiAction.params.language, aiAction.params.file_name, aiAction.params.code);
-            io.emit('activity', {
-              timestamp: new Date().toLocaleTimeString(),
-              type: 'success',
-              title: 'Code Created',
-              message: `Project saved to Desktop: ${aiAction.params.file_name}`
-            });
-            return res.json({ response: { text: finalUserMessage + `\n\nI've created the ${aiAction.params.language} file on your desktop in 'DevAI_Projects'.`, type: 'text' }, execution: result });
-          }
+          await userService.logCommand(userId, command, 'multi_action', failCount === 0 ? 'success' : 'failed', { actions: aiActions, results });
 
-          if (aiAction.action === 'github_push') {
-            // Get user from DB for token and dynamic owner resolution
-            const user = await userService.getUserById(userId);
-            const token = user?.githubToken;
+          // Emit general activity
+          io.emit('system_status_update');
 
-            if (!token) {
-              return res.json({
-                response: { text: "I can't push to GitHub yet. Your account isn't linked! Please go to the Plugins page and connect your GitHub account first.", type: 'text' },
-                execution: { success: false, error: 'GitHub not linked' }
-              });
-            }
-
-            const result = (await githubPush(token, user?.githubUsername, aiAction.params.repo, aiAction.params.file_path, aiAction.params.commit_message, aiAction.params.content || '')) as any;
-            io.emit('activity', {
-              timestamp: new Date().toLocaleTimeString(),
-              type: result.success ? 'success' : 'error',
-              title: 'GitHub Sync',
-              message: result.success ? `Pushed to ${aiAction.params.repo}` : `Push failed: ${result.error || 'Unknown error'}`
-            });
-            return res.json({ response: { text: result.success ? finalUserMessage + `\n\nI've pushed the updates to ${aiAction.params.repo}.` : `I tried to push to GitHub but failed: ${result.error || 'Unknown error'}`, type: result.success ? 'text' : 'error' }, execution: result });
-          }
-
-          if (aiAction.action === 'github_create_repo') {
-            const user = await userService.getUserById(userId);
-            const token = user?.githubToken || process.env.GITHUB_TOKEN || '';
-            const result = await githubCreateRepo(token, aiAction.params.name, aiAction.params.description);
-            io.emit('activity', {
-              timestamp: new Date().toLocaleTimeString(),
-              type: result.success ? 'success' : 'error',
-              title: 'GitHub Repo Created',
-              message: result.success ? `Created repository: ${aiAction.params.name}` : result.error
-            });
-            return res.json({ response: { text: result.success ? `Successfully created repository: ${aiAction.params.name}` : `Failed to create repository: ${result.error}`, type: result.success ? 'text' : 'error' }, execution: result });
-          }
-
-          try {
-            const osResponse = await fetch(OS_SERVER_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: aiAction.action, params: aiAction.params || {} })
-            });
-            const osData = await osResponse.json() as any;
-
-            await userService.logCommand(userId, command, aiAction.action, 'success', { ai: responseText, os: osData });
-            io.emit('activity', {
-              timestamp: new Date().toLocaleTimeString(),
-              type: 'info',
-              title: 'AI Action',
-              message: `AI triggered ${aiAction.action}`
-            });
-            io.emit('system_status_update');
-
-            return res.json({
-              command: { original: command },
-              response: { text: finalUserMessage, type: 'text' },
-              execution: { success: true, mode: 'ai-recursive', details: osData }
-            });
-          } catch (osErr) {
-            console.error("AI Recursive OS Execution Failed:", osErr);
-          }
+          return res.json({
+            command: { original: command },
+            response: { text: finalMessage, type: failCount > 0 ? 'warning' : 'text' },
+            execution: { success: failCount === 0, details: results }
+          });
         }
 
+        // No actions, just chat
         await userService.logCommand(userId, command, 'ai_chat', 'success', { response: responseText });
-        io.emit('activity', {
-          timestamp: new Date().toLocaleTimeString(),
-          type: 'info',
-          title: 'AI Response',
-          message: responseText.substring(0, 50) + (responseText.length > 50 ? '...' : '')
+        return res.json({
+          response: { text: responseText, type: 'text' }
         });
 
-        return res.json({
-          command: { original: command },
-          response: { text: responseText, type: 'text' },
-          execution: { success: true, mode: 'ai' }
-        });
       } catch (aiError) {
         console.error("AI Error:", aiError);
         return res.json({ response: { text: "AI Unavailable", type: 'error' } });

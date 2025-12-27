@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Shield, Mic, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { api } from '../lib/api';
 
 interface PermissionModalProps {
     isOpen: boolean;
@@ -9,13 +10,25 @@ interface PermissionModalProps {
 
 const PermissionModal: React.FC<PermissionModalProps> = ({ isOpen, onComplete }) => {
     const [step, setStep] = useState(0);
+    const [pendingPerms, setPendingPerms] = useState({
+        voice_control: false,
+        file_access: false,
+        app_automation: false
+    });
 
     if (!isOpen) return null;
+
+    const syncToBackend = async (payload: any) => {
+        try {
+            await api.post('/user/permissions', payload);
+        } catch (err) {
+            console.error("Failed to sync permissions to backend:", err);
+        }
+    };
 
     const savePermission = (key: string, value: boolean) => {
         if (typeof window !== 'undefined') {
             localStorage.setItem(key, value.toString());
-            // Dispatch event for other components to update
             window.dispatchEvent(new Event('storage'));
         }
     };
@@ -28,13 +41,16 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ isOpen, onComplete })
             action: async () => {
                 try {
                     await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const newPerms = { ...pendingPerms, voice_control: true };
+                    setPendingPerms(newPerms);
                     savePermission('perm_mic', true);
+                    await syncToBackend(newPerms);
                     setStep(1);
                 } catch (err) {
                     console.error("Microphone permission denied:", err);
                     alert("Microphone access is needed for voice commands. Please allow it in your browser settings.");
                     savePermission('perm_mic', false);
-                    setStep(1); // Proceed anyway mostly? or block? For now proceed.
+                    setStep(1);
                 }
             }
         },
@@ -43,13 +59,12 @@ const PermissionModal: React.FC<PermissionModalProps> = ({ isOpen, onComplete })
             desc: "Allow Dev to manage apps and files (via Local Server).",
             icon: <Shield className="w-8 h-8 text-purple-400" />,
             action: async () => {
-                // Since this relies on the backend running locally, we assume "Allow" means the user consents.
-                // In a real browser-only app, this would request File System Access API.
-                // For this hybrid app, it's a consent flag.
+                const newPerms = { ...pendingPerms, file_access: true, app_automation: true };
+                setPendingPerms(newPerms);
                 savePermission('perm_system', true);
-                savePermission('perm_app_automation', true); // Enable automation by default if they agree to system control
+                savePermission('perm_app_automation', true);
+                await syncToBackend(newPerms);
 
-                // Add a small delay for UX
                 await new Promise(r => setTimeout(r, 500));
                 onComplete();
             }

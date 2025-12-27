@@ -10,6 +10,8 @@
 - **Developer Tools Integration** - GitHub, code editors, terminals
 - **Real-time Monitoring** - Live system metrics and activity feed
 
+![DEV.OS Landing Page](docs/images/landing.png)
+
 ---
 
 ## 🎁 The Problem It Solves
@@ -153,19 +155,13 @@ User Input → NLP Understanding → Action Routing → Multi-Step Execution
 - Directory navigation
 - Application monitoring
 
-### 3. GitHub Integration
-- Auto-detect repositories
-- Push generated code directly
-- Commit management
-- Real-time sync status
 - Repository management
 
-### 4. Real-time Monitoring
-- Live command execution logs
-- System event notifications
-- Application launch tracking
-- File operation monitoring
+![DEV.OS Plugins](docs/images/plugins.png)
+
 - System metrics dashboard
+
+![DEV.OS Dashboard](docs/images/dashboard.png)
 
 ### 5. Voice Commands
 - Speech-to-text processing

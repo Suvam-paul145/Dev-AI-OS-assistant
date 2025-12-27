@@ -1,6 +1,6 @@
 # DEV.OS - The Advanced AI Operating System Assistant
 
-![DEV.OS Mockup](C:/Users/suvam/.gemini/antigravity/brain/7513d439-0c19-4ce0-ade3-e0ff9736f0bd/dev_os_mockup_1766807395022.png)
+![DEV.OS Landing Page](docs/images/landing.png)
 
 ## 🚀 Overview
 **DEV.OS** is a next-generation AI-powered Operating System assistant designed to bridge the gap between human intent and OS execution. Built with a modular microservices architecture, it leverages cutting-edge LLMs (Gemini) to automate desktop workflows, manage system settings, and integrate seamlessly with developer tools like GitHub.
@@ -103,26 +103,14 @@ graph TD
 
 ## �️ Images & Badges
 Below are **three** image options you can add to the README depending on what you want to showcase: quick status badges, static screenshots, or an animated demo GIF. Replace the placeholder paths/URLs with your real images or hosted links.
-
-### Option A — Badges (Quick status)
-Use shields.io style badges that reflect build, license, stars, or other metadata:
-
-```markdown
-[![Build Status](https://img.shields.io/github/actions/workflow/status/Suvam-paul145/Dev-AI-OS-assistant/ci.yml?branch=main)](https://github.com/Suvam-paul145/Dev-AI-OS-assistant/actions)
-[![License](https://img.shields.io/github/license/Suvam-paul145/Dev-AI-OS-assistant.svg)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/Suvam-paul145/Dev-AI-OS-assistant?style=social)](https://github.com/Suvam-paul145/Dev-AI-OS-assistant/stargazers)
 ```
 
-### Option B — Screenshots (Project visuals)
-Add screenshots stored in the repo (recommended path: `docs/images/`). Example markup to show three side-by-side images:
-
-```markdown
+### 🖼️ Project Screenshots
 <p align="center">
-  <img src="docs/images/frontend.png" alt="Frontend UI" width="280" />
-  <img src="docs/images/os_automation.png" alt="OS Automation" width="280" />
-  <img src="docs/images/voice_system.png" alt="Voice System" width="280" />
+  <img src="docs/images/landing.png" alt="Landing Page" width="280" />
+  <img src="docs/images/dashboard.png" alt="Dashboard" width="280" />
+  <img src="docs/images/plugins.png" alt="Plugins & Integrations" width="280" />
 </p>
-```
 
 ### Option C — Animated Demo (GIF)
 If you have a short demo, add an animated GIF (recommended: <5s, keep file size small):
