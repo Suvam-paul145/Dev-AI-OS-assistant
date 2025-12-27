@@ -12,6 +12,11 @@ export interface IUser extends Document {
         voiceName: string;
         notifications: boolean;
     };
+    permissions: {
+        file_access: boolean;
+        app_automation: boolean;
+        voice_control: boolean;
+    };
     createdAt: Date;
     updatedAt: Date;
 }
@@ -28,6 +33,11 @@ const UserSchema: Schema = new Schema({
         voiceName: { type: String, default: 'Dev' },
         notifications: { type: Boolean, default: true },
     },
+    permissions: {
+        file_access: { type: Boolean, default: false },
+        app_automation: { type: Boolean, default: false },
+        voice_control: { type: Boolean, default: false },
+    }
 }, {
     timestamps: true,
 });

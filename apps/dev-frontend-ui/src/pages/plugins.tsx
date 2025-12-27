@@ -122,13 +122,13 @@ const Plugins = () => {
 
                 {/* Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {integrations.map((plugin, idx) => (
+                    {integrations.filter(i => i.id !== 'google-cloud').map((plugin, idx) => (
                         <motion.div
                             key={plugin.id}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.1 }}
-                            className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-10 shadow-[0_0_50px_rgba(0,0,0,0.5)] group relative overflow-hidden"
+                            className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-10 shadow-[0_0_50px_rgba(0,0,0,0.5)] group relative overflow-hidden col-span-2"
                         >
                             <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-${plugin.color}-500/50 to-transparent`} />
 
@@ -145,7 +145,7 @@ const Plugins = () => {
                             </div>
 
                             <h2 className="text-3xl font-bold text-white mb-4">{plugin.name}</h2>
-                            <p className="text-slate-400 mb-10 leading-relaxed text-lg">{plugin.description}</p>
+                            <p className="text-slate-400 mb-10 leading-relaxed text-lg max-w-2xl">{plugin.description}</p>
 
                             <div className="space-y-6">
                                 <div className="flex items-center justify-between p-6 rounded-3xl bg-white/[0.03] border border-white/5">
@@ -164,52 +164,86 @@ const Plugins = () => {
                                             if (plugin.id === 'github' && plugin.status !== 'connected') {
                                                 const token = localStorage.getItem('dev_token');
                                                 window.location.href = `http://localhost:3001/api/auth/github${token ? `?token=${token}` : ''}`;
-                                            } else if (plugin.id === 'google-cloud') {
-                                                // Mock connection for Google Cloud
-                                                const newStatus = plugin.status === 'connected' ? 'disconnected' : 'connected';
-                                                setIntegrations(prev => prev.map(p =>
-                                                    p.id === 'google-cloud' ? { ...p, status: newStatus, lastSync: newStatus === 'connected' ? 'Just now' : 'Never' } : p
-                                                ));
-                                                if (newStatus === 'connected') {
-                                                    // Show success toast
-                                                    const toast = document.createElement('div');
-                                                    toast.className = 'fixed bottom-10 right-10 bg-cyan-500 text-black px-6 py-3 rounded-xl font-bold shadow-2xl animate-in slide-in-from-bottom-10 fade-in';
-                                                    toast.textContent = 'Google Cloud Connected (Simulation)';
-                                                    document.body.appendChild(toast);
-                                                    setTimeout(() => toast.remove(), 3000);
-                                                }
                                             }
                                         }}
                                         className={`flex-1 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform ${plugin.status === 'connected' ? 'bg-slate-800 text-white border border-white/10' : 'bg-white text-black'}`}
                                     >
-                                        {plugin.status === 'connected' ? 'Manage' : 'Connect Account'} <ExternalLink className="w-4 h-4" />
-                                    </button>
-                                    <button className="p-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-colors">
-                                        <Shield className="w-5 h-5 text-slate-400" />
+                                        {plugin.status === 'connected' ? 'Connected' : 'Connect Account'} <ExternalLink className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Info */}
+                            {/* Repo Visualization InfoGraphic */}
                             {plugin.status === 'connected' && (
-                                <div className="mt-8 flex items-center gap-2 text-xs text-slate-500 font-mono">
-                                    <Check className="w-3 h-3 text-green-500" /> Last sync: {plugin.lastSync}
+                                <div className="mt-10 pt-10 border-t border-white/10">
+                                    <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                                        <Github className="w-5 h-5" /> Recent Repositories
+                                    </h3>
+                                    <RepoGrid />
                                 </div>
                             )}
                         </motion.div>
                     ))}
-
-                    {/* Placeholder for "Request Plugin" */}
-                    <div className="border-2 border-dashed border-white/5 rounded-[2.5rem] p-10 flex flex-col items-center justify-center text-center group hover:border-white/10 transition-colors cursor-pointer">
-                        <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                            <Zap className="w-10 h-10 text-slate-500" />
-                        </div>
-                        <h3 className="text-2xl font-bold text-slate-400 mb-2">Request Integration</h3>
-                        <p className="text-slate-500">Don't see what you need? Let us know.</p>
-                    </div>
                 </div>
             </div>
         </Layout>
+    );
+};
+
+const RepoGrid = () => {
+    const [repos, setRepos] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    React.useEffect(() => {
+        const fetchRepos = async () => {
+            try {
+                const token = localStorage.getItem('dev_token');
+                if (!token) return;
+                const res = await api.get('/github/repos', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                setRepos(res.data);
+            } catch (err) {
+                console.error("Failed to load repos", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchRepos();
+        // Poll for updates every 10s to show new repos live
+        const interval = setInterval(fetchRepos, 10000);
+        return () => clearInterval(interval);
+    }, []);
+
+    if (loading) return <div className="text-slate-500 animate-pulse">Loading repositories...</div>;
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {repos.map((repo: any) => (
+                <a
+                    key={repo.id}
+                    href={repo.html_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group block p-5 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-cyan-500/30 transition-all hover:-translate-y-1"
+                >
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-cyan-500"></div>
+                            <span className="font-mono text-xs text-cyan-400">{repo.language || 'Code'}</span>
+                        </div>
+                        <span className="text-xs text-slate-500">{new Date(repo.updated_at).toLocaleDateString()}</span>
+                    </div>
+                    <div className="font-bold text-white mb-1 truncate">{repo.name}</div>
+                    <p className="text-xs text-slate-400 line-clamp-2 h-8">{repo.description || 'No description provided.'}</p>
+                </a>
+            ))}
+            {repos.length === 0 && (
+                <div className="col-span-full text-center py-10 text-slate-500 border border-dashed border-white/10 rounded-2xl">
+                    No repositories found yet. Try asking Dev to "Create a repo".
+                </div>
+            )}
+        </div>
     );
 };
 

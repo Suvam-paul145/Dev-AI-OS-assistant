@@ -59,4 +59,18 @@ export class GitHubService {
             throw new Error(`Repo Creation Failed: ${error.message}`);
         }
     }
+
+    async listRepos(limit: number = 10) {
+        try {
+            const { data } = await this.octokit.rest.repos.listForAuthenticatedUser({
+                sort: 'updated',
+                direction: 'desc',
+                per_page: limit
+            });
+            return data;
+        } catch (error: any) {
+            console.error('Failed to list repos:', error);
+            throw new Error('Failed to fetch repositories');
+        }
+    }
 }

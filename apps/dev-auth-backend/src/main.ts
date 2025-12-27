@@ -184,12 +184,18 @@ const writeCodeToDesktop = async (language: string, fileName: string, code: stri
     const filePath = path.join(desktopPath, fileName);
     const dirPath = path.dirname(filePath);
 
+    // Normalize path for Windows
+    const normalizedDirPath = path.normalize(dirPath);
+
+    console.log(`[File System] Creating directory: ${normalizedDirPath}`);
+
     // Recursively create the full directory path
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
+    if (!fs.existsSync(normalizedDirPath)) {
+      fs.mkdirSync(normalizedDirPath, { recursive: true });
     }
 
     fs.writeFileSync(filePath, code);
+    console.log(`[File System] File written to: ${filePath}`);
     return { success: true, path: filePath };
   } catch (error) {
     console.error('Failed to write code to desktop:', error);
@@ -360,10 +366,36 @@ app.get('/api/user/status', async (req, res) => {
       githubLinked: !!user.githubToken,
       githubUsername: user.githubUsername,
       name: user.name,
-      email: user.email
+      email: user.email,
+      permissions: user.permissions || { file_access: false, app_automation: false, voice_control: false }
     });
   } catch (err) {
     res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+// Update User Permissions
+app.post('/api/user/permissions', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwtService.verifyAccessToken(token) as any;
+    const userId = decoded?.sub;
+
+    // Validate body
+    const { file_access, app_automation, voice_control } = req.body;
+
+    // Update
+    const updatedUser = await userService.updateUser(userId, {
+      permissions: { file_access, app_automation, voice_control }
+    });
+
+    res.json({ success: true, permissions: updatedUser?.permissions });
+  } catch (err) {
+    console.error('Failed to update permissions:', err);
+    res.status(500).json({ error: 'Failed to update permissions' });
   }
 });
 
@@ -501,6 +533,30 @@ app.post('/api/command', async (req, res) => {
 
         if (aiAction && aiAction.action) {
           console.log(`🤖 AI triggered recursive action: ${aiAction.action}`);
+
+          // Permission Enforcement Layer
+          const user = await userService.getUserById(userId);
+          const perms = user?.permissions || { file_access: false, app_automation: false, voice_control: false };
+
+          // 1. File Systems Check
+          if (['write_code', 'clear_recycle_bin', 'github_push'].includes(aiAction.action)) {
+            if (!perms.file_access) {
+              return res.json({
+                response: { text: "I need 'File Access' permission to do that. Please enable it in Settings > Permissions.", type: 'error' },
+                execution: { success: false, error: 'Permission Denied: File Access' }
+              });
+            }
+          }
+
+          // 2. App Automation Check
+          if (['open_app', 'system_execute'].includes(aiAction.action) || aiAction.action.startsWith('set_')) {
+            if (!perms.app_automation) {
+              return res.json({
+                response: { text: "I need 'App Automation' permission to control apps and system settings. Please enable it in Settings > Permissions.", type: 'error' },
+                execution: { success: false, error: 'Permission Denied: App Automation' }
+              });
+            }
+          }
 
           // Strip JSON from the text response shown to user
           const textForUser = responseText.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim();
@@ -649,8 +705,32 @@ app.get('/api/auth/github', (req, res) => {
     }
   }
 
+  /* original code was duplicated */
   const url = oauthHandler.generateGithubAuthUrl(state);
   res.redirect(url);
+});
+
+// 3.5 List GitHub Repos
+app.get('/api/github/repos', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwtService.verifyAccessToken(token) as any;
+    const user = await userService.getUserById(decoded?.sub);
+
+    if (!user || !user.githubToken) {
+      return res.status(400).json({ error: 'GitHub not linked' });
+    }
+
+    const service = new GitHubService(user.githubToken);
+    const repos = await service.listRepos(12); // Fetch top 12 updated repos
+    res.json(repos);
+  } catch (error: any) {
+    console.error('Failed to fetch repos:', error);
+    res.status(500).json({ error: 'Failed to fetch repositories' });
+  }
 });
 
 // 4. GitHub Callback

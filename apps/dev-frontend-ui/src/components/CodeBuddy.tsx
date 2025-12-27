@@ -6,6 +6,25 @@ interface CodeBuddyProps {
     onCommandExecuted?: () => void;
 }
 
+// Audio Visualizer Component
+const AudioVisualizer = ({ isActive }: { isActive: boolean }) => {
+    return (
+        <div className={`flex items-center justify-center gap-1 h-8 transition-opacity duration-500 ${isActive ? 'opacity-100' : 'opacity-0'}`}>
+            {[1, 2, 3, 4, 5, 4, 3, 2, 1].map((i, idx) => (
+                <div
+                    key={idx}
+                    className="w-1 bg-cyan-400 rounded-full animate-wave"
+                    style={{
+                        height: isActive ? `${Math.random() * 24 + 8}px` : '4px',
+                        animationDelay: `${idx * 0.05}s`,
+                        animationDuration: '0.8s'
+                    }}
+                />
+            ))}
+        </div>
+    );
+};
+
 const CodeBuddy = ({ onCommandExecuted }: CodeBuddyProps) => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -13,21 +32,22 @@ const CodeBuddy = ({ onCommandExecuted }: CodeBuddyProps) => {
     const [userName, setUserName] = useState('User');
     const [isMuted, setIsMuted] = useState(false);
     const [isListening, setIsListening] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
 
     const speakResponse = (text: string) => {
         if (!window.speechSynthesis) return;
-
-        // Cancel any ongoing speech
         window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 1.0;
-        utterance.pitch = 0.9; // Slightly deeper for DEV character
-
-        // Try to find a good English voice
+        utterance.pitch = 0.9;
         const voices = window.speechSynthesis.getVoices();
         const preferredVoice = voices.find(v => v.name.includes('Google US English') || v.name.includes('Desktop')) || voices[0];
         if (preferredVoice) utterance.voice = preferredVoice;
+
+        utterance.onstart = () => setIsSpeaking(true);
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
 
         window.speechSynthesis.speak(utterance);
     };
@@ -79,7 +99,6 @@ const CodeBuddy = ({ onCommandExecuted }: CodeBuddyProps) => {
 
         recognition.onend = () => {
             setIsListening(false);
-            // Stay loading? No, depend on result.
         };
 
         recognition.onerror = (event: any) => {
@@ -135,10 +154,16 @@ const CodeBuddy = ({ onCommandExecuted }: CodeBuddyProps) => {
 
                 {/* Avatar */}
                 <div className="relative mb-6 shrink-0 flex flex-col items-center">
-                    <div className={`absolute inset-0 bg-blue-500 blur-[40px] opacity-20 ${isLoading ? 'animate-pulse' : ''}`} />
-                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-blue-500/30 flex items-center justify-center relative z-10 shadow-neon-blue animate-float">
-                        <div className="text-4xl">🤖</div>
+                    <div className={`absolute inset-0 bg-blue-500 blur-[40px] opacity-20 ${isLoading || isSpeaking ? 'animate-pulse' : ''}`} />
+                    <div className={`w-32 h-32 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-blue-500/30 flex items-center justify-center relative z-10 shadow-neon-blue transition-transform duration-300 ${isSpeaking ? 'scale-110 border-cyan-400' : ''}`}>
+                        <div className="text-4xl">{isLoading ? '🤔' : isSpeaking ? '🗣️' : '🤖'}</div>
                     </div>
+
+                    {/* Visualizer positioned under avatar */}
+                    <div className="mt-4 h-8 flex items-center justify-center w-full">
+                        <AudioVisualizer isActive={isListening || isSpeaking || isLoading} />
+                    </div>
+
                     <button
                         onClick={async () => {
                             const newMute = !isMuted;
@@ -153,19 +178,19 @@ const CodeBuddy = ({ onCommandExecuted }: CodeBuddyProps) => {
                                 console.error("Failed to sync mic status:", e);
                             }
                         }}
-                        className="px-3 py-1 -mt-4 bg-black/60 rounded-full border border-blue-500/50 text-xs font-bold text-blue-400 shadow-neon-blue z-20 backdrop-blur-md hover:bg-blue-600/20 active:scale-95 transition-all cursor-pointer"
+                        className="px-3 py-1 -mt-[5.5rem] bg-black/60 rounded-full border border-blue-500/50 text-xs font-bold text-blue-400 shadow-neon-blue z-20 backdrop-blur-md hover:bg-blue-600/20 active:scale-95 transition-all cursor-pointer transform translate-y-24"
                     >
                         DEV
                     </button>
-                    <h2 className="text-lg font-medium text-white mt-4">
+                    <h2 className="text-lg font-medium text-white mt-8">
                         Hello {userName}
                     </h2>
                 </div>
 
                 {/* Scrollable Message Area */}
                 <div className="flex-1 min-h-0 overflow-y-auto mb-4 pr-2 scrollbar-thin scrollbar-thumb-blue-500/20 scrollbar-track-transparent">
-                    <div className="text-slate-400 text-sm whitespace-pre-wrap">
-                        {isLoading ? "Processing..." : lastResponse}
+                    <div className="text-slate-400 text-sm whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-bottom-2">
+                        {isLoading ? "Processing your request..." : lastResponse}
                     </div>
                 </div>
 
