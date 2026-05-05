@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Dev AI Assistant - Auth & Backend System (NestJS)",
   "main": "dist/main.js",
+  "engines": {
+    "node": ">=20 <21",
+    "npm": ">=10 <11"
+  },
   "scripts": {
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",

@@ -3,13 +3,21 @@ services:
     name: dev-auth-backend
     env: node
     plan: free
-    buildCommand: npm install
-    startCommand: npm run build && npm run start
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 20.19.5
       - key: PORT
         value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
     healthCheckPath: /api/status
     regions:
       - oregon

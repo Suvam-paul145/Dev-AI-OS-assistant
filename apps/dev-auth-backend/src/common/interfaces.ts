@@ -82,6 +82,7 @@ export interface PermissionGrant {
   permission: string;
   granted: boolean;
   grantedAt?: Date;
+  revokedAt?: Date;
 }
 
 export interface JWTPayload {
