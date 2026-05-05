@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "public": true,
+  "builds": [
+    {
+      "src": "apps/dev-frontend-ui/package.json",
+      "use": "@vercel/next",
+      "config": {
+        "distDir": "apps/dev-frontend-ui/.next"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/apps/dev-frontend-ui/$1"
+    }
+  ],
+  "buildCommand": "cd apps/dev-frontend-ui && npm install && npm run build",
+  "outputDirectory": "apps/dev-frontend-ui/.next",
+  "env": {
+    "NEXT_PUBLIC_BACKEND_URL": "https://dev-ai-os-assistant.onrender.com"
+  },
+  "framework": "nextjs"
+}
